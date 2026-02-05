@@ -1,6 +1,6 @@
 [package]
 name = "tracing-ecs-formatter"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2024"
 authors = ["Curtis Lee Fulton <curtis@bitshock.com>"]
 description = "ECS (Elastic Common Schema) 8.11 JSON formatter for tracing-subscriber"
@@ -36,3 +36,7 @@ path = "examples/basic.rs"
 name = "opentelemetry"
 path = "examples/opentelemetry.rs"
 required-features = ["opentelemetry"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

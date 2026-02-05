@@ -16,14 +16,14 @@ Produces JSON logs conforming to the [ECS 8.11 specification](https://www.elasti
 
 ```toml
 [dependencies]
-tracing-ecs-formatter = "0.1"
+tracing-ecs-formatter = "1"
 ```
 
 Without OpenTelemetry support (smaller dependency tree):
 
 ```toml
 [dependencies]
-tracing-ecs-formatter = { version = "0.1", default-features = false }
+tracing-ecs-formatter = { version = "1", default-features = false }
 ```
 
 ## Usage

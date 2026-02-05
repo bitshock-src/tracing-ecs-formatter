@@ -40,25 +40,6 @@ fn level_to_str(level: &Level) -> &'static str {
 ///
 /// Implements [`FormatEvent`] to produce JSON log output conforming to the
 /// [ECS 8.11 specification](https://www.elastic.co/guide/en/ecs/8.11/index.html).
-///
-/// # Fields
-///
-/// Each log record includes:
-/// - `@timestamp`: RFC 3339 timestamp
-/// - `log.level`: Log level (ERROR, WARN, INFO, DEBUG, TRACE)
-/// - `message`: Log message
-/// - `ecs.version`: Always "8.11"
-/// - `service.name`: Configured service name
-/// - `service.version`: Configured service version
-/// - `log.logger`: Tracing target (logger instance name)
-/// - `trace.id`, `span.id`: OpenTelemetry context (when available)
-/// - `error.*`: Error fields (when present)
-/// - `labels.*`: Additional fields from tracing spans/events
-///
-/// # Fallback Behavior
-///
-/// If JSON serialization fails, outputs a valid ECS JSON record containing
-/// the debug representation of the log record and the serialization error.
 pub struct EcsFormatter {
     service_name: Arc<str>,
     service_version: Arc<str>,

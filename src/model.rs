@@ -8,7 +8,8 @@ pub struct EcsLogRecord {
     pub timestamp: String,
     #[serde(rename = "log.level")]
     pub log_level: &'static str,
-    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
     #[serde(rename = "ecs.version")]
     pub ecs_version: &'static str,
     #[serde(rename = "trace.id", skip_serializing_if = "Option::is_none")]
@@ -21,18 +22,12 @@ pub struct EcsLogRecord {
     pub service_version: Arc<str>,
     #[serde(rename = "log.logger")]
     pub log_logger: String,
-    #[serde(flatten, skip_serializing_if = "Option::is_none")]
-    pub error: Option<EcsError>,
-    #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
-    pub labels: HashMap<String, String>,
-}
-
-#[derive(Debug, PartialEq, Serialize)]
-pub struct EcsError {
     #[serde(rename = "error.type", skip_serializing_if = "Option::is_none")]
     pub error_type: Option<String>,
-    #[serde(rename = "error.message")]
-    pub error_message: String,
+    #[serde(rename = "error.message", skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
     #[serde(rename = "error.stack_trace", skip_serializing_if = "Option::is_none")]
-    pub stack_trace: Option<String>,
+    pub error_stack_trace: Option<String>,
+    #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub labels: HashMap<String, String>,
 }

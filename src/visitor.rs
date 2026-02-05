@@ -1,4 +1,4 @@
-use crate::model::{EcsError, EcsLogRecord};
+use crate::model::EcsLogRecord;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -97,37 +97,20 @@ impl EcsLogRecordVisitor {
 }
 
 impl From<EcsLogRecordVisitor> for EcsLogRecord {
-    fn from(mut visitor: EcsLogRecordVisitor) -> Self {
-        let has_error = visitor.visited.error_message.is_some()
-            || visitor.visited.error_type.is_some()
-            || visitor.visited.error_stack_trace.is_some();
-
-        let message = match visitor.visited.message.take() {
-            Some(m) if !m.is_empty() => m,
-            _ => visitor.visited.error_message.clone().unwrap_or_default(),
-        };
-
-        let error = if has_error {
-            Some(EcsError {
-                error_type: visitor.visited.error_type,
-                error_message: visitor.visited.error_message.unwrap_or_default(),
-                stack_trace: visitor.visited.error_stack_trace,
-            })
-        } else {
-            None
-        };
-
+    fn from(visitor: EcsLogRecordVisitor) -> Self {
         EcsLogRecord {
             timestamp: visitor.timestamp,
             log_level: visitor.log_level,
-            message,
+            message: visitor.visited.message,
             ecs_version: ECS_VERSION,
             trace_id: visitor.trace_id,
             span_id: visitor.span_id,
             service_name: visitor.service_name,
             service_version: visitor.service_version,
             log_logger: visitor.log_logger,
-            error,
+            error_type: visitor.visited.error_type,
+            error_message: visitor.visited.error_message,
+            error_stack_trace: visitor.visited.error_stack_trace,
             labels: visitor.visited.labels,
         }
     }
@@ -260,18 +243,16 @@ mod tests {
         let expected = EcsLogRecord {
             timestamp: "2024-01-15T10:30:00Z".to_string(),
             log_level: "ERROR",
-            message: "Something went wrong".to_string(),
+            message: Some("Something went wrong".to_string()),
             ecs_version: "8.11",
             trace_id: None,
             span_id: None,
             service_name: Arc::from("test-service"),
             service_version: Arc::from("1.2.3"),
             log_logger: "my_app::module".to_string(),
-            error: Some(EcsError {
-                error_type: Some("ValidationError".to_string()),
-                error_message: "Invalid input".to_string(),
-                stack_trace: Some("at line 42".to_string()),
-            }),
+            error_type: Some("ValidationError".to_string()),
+            error_message: Some("Invalid input".to_string()),
+            error_stack_trace: Some("at line 42".to_string()),
             labels: {
                 let mut labels = HashMap::new();
                 labels.insert("labels.custom".to_string(), "value".to_string());
@@ -280,10 +261,10 @@ mod tests {
         };
 
         let visited = VisitedFields {
-            message: Some(expected.message.clone()),
-            error_type: expected.error.as_ref().unwrap().error_type.clone(),
-            error_message: Some(expected.error.as_ref().unwrap().error_message.clone()),
-            error_stack_trace: expected.error.as_ref().unwrap().stack_trace.clone(),
+            message: expected.message.clone(),
+            error_type: expected.error_type.clone(),
+            error_message: expected.error_message.clone(),
+            error_stack_trace: expected.error_stack_trace.clone(),
             labels: expected.labels.clone(),
         };
 

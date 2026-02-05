@@ -1,0 +1,38 @@
+[package]
+name = "tracing-ecs-formatter"
+version = "0.1.0"
+edition = "2024"
+authors = ["Curtis Lee Fulton <curtis@bitshock.com>"]
+description = "ECS (Elastic Common Schema) 8.11 JSON formatter for tracing-subscriber"
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bitshock-src/tracing-ecs-formatter"
+documentation = "https://docs.rs/tracing-ecs-formatter"
+keywords = ["tracing", "ecs", "elastic", "logging", "json"]
+categories = ["development-tools::debugging", "development-tools::profiling"]
+
+[features]
+default = ["opentelemetry"]
+opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+opentelemetry = { version = "0.31", optional = true, default-features = false, features = ["trace"] }
+serde = { version = "1", default-features = false, features = ["derive", "rc", "std"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-opentelemetry = { version = "0.32", optional = true, default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry"] }
+
+[dev-dependencies]
+escargot = "0.5"
+opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace"] }
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[example]]
+name = "opentelemetry"
+path = "examples/opentelemetry.rs"
+required-features = ["opentelemetry"]

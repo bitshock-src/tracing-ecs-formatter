@@ -1,6 +1,6 @@
 [package]
 name = "tracing-ecs-formatter"
-version = "1.0.2"
+version = "2.0.0"
 edition = "2024"
 authors = ["Curtis Lee Fulton <curtis@bitshock.com>"]
 description = "ECS (Elastic Common Schema) 8.11 JSON formatter for tracing-subscriber"
@@ -17,16 +17,16 @@ opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-opentelemetry = { version = "0.31", optional = true, default-features = false, features = ["trace"] }
+opentelemetry = { version = "0.32", optional = true, default-features = false, features = ["trace"] }
 serde = { version = "1", default-features = false, features = ["derive", "rc", "std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-tracing-opentelemetry = { version = "0.32", optional = true, default-features = false }
+tracing-opentelemetry = { version = "0.33", optional = true, default-features = false }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry"] }
 
 [dev-dependencies]
 escargot = "0.5"
-opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace"] }
 
 [[example]]
 name = "basic"
@@ -36,6 +36,10 @@ path = "examples/basic.rs"
 name = "opentelemetry"
 path = "examples/opentelemetry.rs"
 required-features = ["opentelemetry"]
+
+[[example]]
+name = "service_metadata"
+path = "examples/service_metadata.rs"
 
 [package.metadata.docs.rs]
 all-features = true

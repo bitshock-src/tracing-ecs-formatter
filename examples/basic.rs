@@ -18,7 +18,13 @@ fn main() {
         "error message"
     );
     tracing::warn!(custom_field = "custom_value", "warn message");
-    tracing::info!(custom_field = "custom_value", "info message");
+    tracing::info!(
+        http.request.method = "GET",
+        http.response.status_code = 200_u64,
+        url.path = "/users",
+        custom_field = "custom_value",
+        "info message"
+    );
     tracing::debug!(custom_field = "custom_value", "debug message");
     tracing::trace!(custom_field = "custom_value", "trace message");
 }

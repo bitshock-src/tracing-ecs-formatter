@@ -50,10 +50,31 @@ fn expected_record(log_level: &str, log_logger: &str) -> EcsLogRecord {
         (None, None, None)
     };
 
-    let labels = HashMap::from([(
-        "labels.custom_field".to_string(),
-        serde_json::Value::String("custom_value".to_string()),
-    )]);
+    let mut labels = HashMap::from([
+        (
+            "labels.custom_field".to_string(),
+            serde_json::Value::String("custom_value".to_string()),
+        ),
+        // Per the ecs-logging spec, `event.dataset` defaults to `service.name`.
+        (
+            "event.dataset".to_string(),
+            serde_json::Value::String("test-service".to_string()),
+        ),
+    ]);
+    if log_level == "INFO" {
+        labels.insert(
+            "http.request.method".to_string(),
+            serde_json::Value::String("GET".to_string()),
+        );
+        labels.insert(
+            "http.response.status_code".to_string(),
+            serde_json::Value::from(200_u64),
+        );
+        labels.insert(
+            "url.path".to_string(),
+            serde_json::Value::String("/users".to_string()),
+        );
+    }
 
     EcsLogRecord {
         timestamp: String::new(),
@@ -72,7 +93,7 @@ fn expected_record(log_level: &str, log_logger: &str) -> EcsLogRecord {
     }
 }
 
-fn run_example(name: &str, opentelemetry: bool) -> Vec<EcsLogRecord> {
+fn run_example_raw(name: &str, opentelemetry: bool) -> Vec<String> {
     let mut build = escargot::CargoBuild::new().example(name);
 
     build = if opentelemetry {
@@ -90,8 +111,15 @@ fn run_example(name: &str, opentelemetry: bool) -> Vec<EcsLogRecord> {
     stdout
         .lines()
         .filter(|line| line.starts_with('{'))
+        .map(str::to_string)
+        .collect()
+}
+
+fn run_example(name: &str, opentelemetry: bool) -> Vec<EcsLogRecord> {
+    run_example_raw(name, opentelemetry)
+        .into_iter()
         .map(|line| {
-            serde_json::from_str(line)
+            serde_json::from_str(&line)
                 .unwrap_or_else(|e| panic!("Failed to parse log line: {e}\nLine: {line}"))
         })
         .collect()
@@ -189,4 +217,45 @@ fn test_opentelemetry_integration() {
     assert!(record.trace_id.is_some(), "Expected trace_id");
     assert!(record.span_id.is_some(), "Expected span_id");
     assert_eq!(record, expected);
+}
+
+#[test]
+fn test_service_metadata_builders() {
+    let records = run_example("service_metadata", false);
+    assert_eq!(records.len(), 1);
+    let record = &records[0];
+
+    assert_eq!(
+        record.labels.get("service.environment"),
+        Some(&serde_json::Value::String("prod".to_string()))
+    );
+    assert_eq!(
+        record.labels.get("service.node.name"),
+        Some(&serde_json::Value::String("node-7".to_string()))
+    );
+    assert_eq!(
+        record.labels.get("event.dataset"),
+        Some(&serde_json::Value::String("svc.access".to_string()))
+    );
+}
+
+#[test]
+fn test_first_four_keys_appear_in_spec_order() {
+    let lines = run_example_raw("basic", false);
+    let line = lines.first().expect("expected at least one log line");
+
+    let ts_pos = line
+        .find("\"@timestamp\"")
+        .expect("no @timestamp key in output");
+    let lvl_pos = line
+        .find("\"log.level\"")
+        .expect("no log.level key in output");
+    let msg_pos = line.find("\"message\"").expect("no message key in output");
+    let ecs_pos = line
+        .find("\"ecs.version\"")
+        .expect("no ecs.version key in output");
+
+    assert!(ts_pos < lvl_pos, "@timestamp must precede log.level");
+    assert!(lvl_pos < msg_pos, "log.level must precede message");
+    assert!(msg_pos < ecs_pos, "message must precede ecs.version");
 }

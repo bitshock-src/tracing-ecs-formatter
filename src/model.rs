@@ -1,4 +1,5 @@
 use serde::Serialize;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -12,22 +13,39 @@ pub struct EcsLogRecord {
     pub message: Option<String>,
     #[serde(rename = "ecs.version")]
     pub ecs_version: &'static str,
+
     #[serde(rename = "trace.id", skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
     #[serde(rename = "span.id", skip_serializing_if = "Option::is_none")]
     pub span_id: Option<String>,
+
     #[serde(rename = "service.name")]
     pub service_name: Arc<str>,
     #[serde(rename = "service.version")]
     pub service_version: Arc<str>,
+    #[serde(
+        rename = "service.environment",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub service_environment: Option<Arc<str>>,
+    #[serde(rename = "service.node.name", skip_serializing_if = "Option::is_none")]
+    pub service_node_name: Option<Arc<str>>,
+    #[serde(rename = "event.dataset", skip_serializing_if = "Option::is_none")]
+    pub event_dataset: Option<Arc<str>>,
+
     #[serde(rename = "log.logger")]
     pub log_logger: String,
+
     #[serde(rename = "error.type", skip_serializing_if = "Option::is_none")]
     pub error_type: Option<String>,
     #[serde(rename = "error.message", skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
     #[serde(rename = "error.stack_trace", skip_serializing_if = "Option::is_none")]
     pub error_stack_trace: Option<String>,
+
+    #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub ecs_fields: HashMap<String, Value>,
+
     #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
     pub labels: HashMap<String, String>,
 }

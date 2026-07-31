@@ -39,10 +39,14 @@ fn level_to_str(level: &Level) -> &'static str {
 /// ECS (Elastic Common Schema) 8.11 JSON formatter for `tracing_subscriber`.
 ///
 /// Implements [`FormatEvent`] to produce JSON log output conforming to the
-/// [ECS 8.11 specification](https://www.elastic.co/guide/en/ecs/8.11/index.html).
+/// [ECS 8.x specification](https://www.elastic.co/docs/reference/ecs) and the
+/// [ECS logging spec](https://github.com/elastic/ecs-logging).
 pub struct EcsFormatter {
     service_name: Arc<str>,
     service_version: Arc<str>,
+    service_environment: Option<Arc<str>>,
+    service_node_name: Option<Arc<str>>,
+    event_dataset: Option<Arc<str>>,
 }
 
 impl EcsFormatter {
@@ -61,10 +65,36 @@ impl EcsFormatter {
     /// let formatter = EcsFormatter::new("my-service", env!("CARGO_PKG_VERSION"));
     /// ```
     pub fn new(service_name: impl AsRef<str>, service_version: impl AsRef<str>) -> Self {
+        let service_name: Arc<str> = Arc::from(service_name.as_ref());
+        let service_version: Arc<str> = Arc::from(service_version.as_ref());
+        let event_dataset = Some(Arc::clone(&service_name));
         Self {
-            service_name: Arc::from(service_name.as_ref()),
-            service_version: Arc::from(service_version.as_ref()),
+            service_name,
+            service_version,
+            service_environment: None,
+            service_node_name: None,
+            event_dataset,
         }
+    }
+
+    /// Sets the optional `service.environment` field (e.g., `"prod"`, `"staging"`).
+    pub fn with_service_environment(mut self, env: impl AsRef<str>) -> Self {
+        self.service_environment = Some(Arc::from(env.as_ref()));
+        self
+    }
+
+    /// Sets the optional `service.node.name` field (a unique node identifier).
+    pub fn with_service_node_name(mut self, node: impl AsRef<str>) -> Self {
+        self.service_node_name = Some(Arc::from(node.as_ref()));
+        self
+    }
+
+    /// Overrides `event.dataset` (defaults to `service.name`, per the
+    /// ecs-logging spec). Common values: `"my-service.access"`,
+    /// `"my-service.audit"`.
+    pub fn with_event_dataset(mut self, dataset: impl AsRef<str>) -> Self {
+        self.event_dataset = Some(Arc::from(dataset.as_ref()));
+        self
     }
 }
 
@@ -87,6 +117,9 @@ where
             metadata.target(),
             Arc::clone(&self.service_name),
             Arc::clone(&self.service_version),
+            self.service_environment.clone(),
+            self.service_node_name.clone(),
+            self.event_dataset.clone(),
         );
 
         #[cfg(feature = "opentelemetry")]

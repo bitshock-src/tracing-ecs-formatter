@@ -70,6 +70,25 @@ fn is_ecs_namespace_field(name: &str) -> bool {
     }
 }
 
+const ECS_ARRAY_FIELDS: &[&str] = &["event.category", "event.type"];
+
+fn is_ecs_array_field(name: &str) -> bool {
+    ECS_ARRAY_FIELDS.binary_search(&name).is_ok()
+}
+
+fn coerce_to_array(value: Value) -> Value {
+    match value {
+        Value::Array(_) => value,
+        Value::String(ref s) if s.trim_start().starts_with('[') => {
+            match serde_json::from_str::<Value>(s) {
+                Ok(Value::Array(arr)) => Value::Array(arr),
+                _ => Value::Array(vec![value]),
+            }
+        }
+        _ => Value::Array(vec![value]),
+    }
+}
+
 fn sanitize_label_key(name: &str) -> String {
     let mut out = String::with_capacity("labels.".len() + name.len());
     out.push_str("labels.");
@@ -98,6 +117,8 @@ pub struct VisitedFields {
     pub error_type: Option<String>,
     pub error_message: Option<String>,
     pub error_stack_trace: Option<String>,
+    pub trace_id: Option<String>,
+    pub span_id: Option<String>,
     pub ecs_fields: HashMap<String, Value>,
     pub labels: HashMap<String, String>,
 }
@@ -125,10 +146,23 @@ impl VisitedFields {
                 self.error_stack_trace = Some(value_to_label_string(value));
                 return;
             }
+            "trace.id" => {
+                self.trace_id = Some(value_to_label_string(value));
+                return;
+            }
+            "span.id" => {
+                self.span_id = Some(value_to_label_string(value));
+                return;
+            }
             _ => {}
         }
         if is_ecs_namespace_field(name) {
-            self.ecs_fields.insert(name.to_string(), value);
+            let stored = if is_ecs_array_field(name) {
+                coerce_to_array(value)
+            } else {
+                value
+            };
+            self.ecs_fields.insert(name.to_string(), stored);
         } else {
             self.labels
                 .insert(sanitize_label_key(name), value_to_label_string(value));
@@ -139,12 +173,13 @@ impl VisitedFields {
 pub struct EcsLogRecordVisitor {
     timestamp: String,
     log_level: &'static str,
-    log_logger: String,
+    log_logger: Option<Arc<str>>,
     service_name: Arc<str>,
     service_version: Arc<str>,
     service_environment: Option<Arc<str>>,
     service_node_name: Option<Arc<str>>,
     event_dataset: Option<Arc<str>>,
+    event_module: String,
     trace_id: Option<String>,
     span_id: Option<String>,
     visited: VisitedFields,
@@ -155,12 +190,13 @@ impl EcsLogRecordVisitor {
     pub fn new(
         timestamp: impl Into<String>,
         log_level: &'static str,
-        log_logger: impl Into<String>,
+        log_logger: Option<Arc<str>>,
         service_name: Arc<str>,
         service_version: Arc<str>,
         service_environment: Option<Arc<str>>,
         service_node_name: Option<Arc<str>>,
         event_dataset: Option<Arc<str>>,
+        event_module: impl Into<String>,
     ) -> Self {
         Self::with_visited(
             timestamp,
@@ -171,6 +207,7 @@ impl EcsLogRecordVisitor {
             service_environment,
             service_node_name,
             event_dataset,
+            event_module,
             VisitedFields::new(),
         )
     }
@@ -179,23 +216,25 @@ impl EcsLogRecordVisitor {
     pub fn with_visited(
         timestamp: impl Into<String>,
         log_level: &'static str,
-        log_logger: impl Into<String>,
+        log_logger: Option<Arc<str>>,
         service_name: Arc<str>,
         service_version: Arc<str>,
         service_environment: Option<Arc<str>>,
         service_node_name: Option<Arc<str>>,
         event_dataset: Option<Arc<str>>,
+        event_module: impl Into<String>,
         visited: VisitedFields,
     ) -> Self {
         Self {
             timestamp: timestamp.into(),
             log_level,
-            log_logger: log_logger.into(),
+            log_logger,
             service_name,
             service_version,
             service_environment,
             service_node_name,
             event_dataset,
+            event_module: event_module.into(),
             trace_id: None,
             span_id: None,
             visited,
@@ -213,6 +252,15 @@ impl EcsLogRecordVisitor {
         self.span_id = Some(value.into());
         self
     }
+
+    pub(crate) fn set_log_origin(&mut self, file: &str, line: u32) {
+        self.visited
+            .ecs_fields
+            .insert("log.origin.file.name".to_string(), Value::from(file));
+        self.visited
+            .ecs_fields
+            .insert("log.origin.file.line".to_string(), Value::from(line));
+    }
 }
 
 impl From<EcsLogRecordVisitor> for EcsLogRecord {
@@ -222,13 +270,14 @@ impl From<EcsLogRecordVisitor> for EcsLogRecord {
             log_level: visitor.log_level,
             message: visitor.visited.message,
             ecs_version: ECS_VERSION,
-            trace_id: visitor.trace_id,
-            span_id: visitor.span_id,
+            trace_id: visitor.visited.trace_id.or(visitor.trace_id),
+            span_id: visitor.visited.span_id.or(visitor.span_id),
             service_name: visitor.service_name,
             service_version: visitor.service_version,
             service_environment: visitor.service_environment,
             service_node_name: visitor.service_node_name,
             event_dataset: visitor.event_dataset,
+            event_module: visitor.event_module,
             log_logger: visitor.log_logger,
             error_type: visitor.visited.error_type,
             error_message: visitor.visited.error_message,
@@ -325,6 +374,100 @@ mod tests {
     }
 
     #[test]
+    fn ecs_array_field_list_is_sorted() {
+        let mut sorted = ECS_ARRAY_FIELDS.to_vec();
+        sorted.sort_unstable();
+        assert_eq!(ECS_ARRAY_FIELDS, sorted.as_slice());
+    }
+
+    #[test]
+    fn is_ecs_array_field_recognises_normalize_array_fields() {
+        assert!(is_ecs_array_field("event.category"));
+        assert!(is_ecs_array_field("event.type"));
+        assert!(!is_ecs_array_field("event.kind"));
+        assert!(!is_ecs_array_field("event.outcome"));
+        assert!(!is_ecs_array_field("http.request.method"));
+    }
+
+    #[test]
+    fn coerce_to_array_wraps_scalar_string() {
+        assert_eq!(
+            coerce_to_array(Value::from("access")),
+            Value::Array(vec![Value::from("access")]),
+        );
+    }
+
+    #[test]
+    fn coerce_to_array_passes_through_actual_array() {
+        let arr = Value::Array(vec![Value::from("a"), Value::from("b")]);
+        assert_eq!(coerce_to_array(arr.clone()), arr);
+    }
+
+    #[test]
+    fn coerce_to_array_parses_json_array_literal_string() {
+        assert_eq!(
+            coerce_to_array(Value::from(r#"["access","error"]"#)),
+            Value::Array(vec![Value::from("access"), Value::from("error")]),
+        );
+    }
+
+    #[test]
+    fn coerce_to_array_falls_back_to_scalar_wrap_on_malformed_json() {
+        assert_eq!(
+            coerce_to_array(Value::from("[unterminated")),
+            Value::Array(vec![Value::from("[unterminated")]),
+        );
+    }
+
+    #[test]
+    fn coerce_to_array_ignores_non_bracket_strings() {
+        assert_eq!(
+            coerce_to_array(Value::from("web,api")),
+            Value::Array(vec![Value::from("web,api")]),
+        );
+    }
+
+    #[test]
+    fn coerce_to_array_wraps_number_and_bool() {
+        assert_eq!(
+            coerce_to_array(Value::from(42_i64)),
+            Value::Array(vec![Value::from(42_i64)]),
+        );
+        assert_eq!(
+            coerce_to_array(Value::from(true)),
+            Value::Array(vec![Value::from(true)]),
+        );
+    }
+
+    #[test]
+    fn record_coerces_scalar_for_array_field() {
+        let mut visited = VisitedFields::new();
+        visited.record("event.type", Value::from("access"));
+        assert_eq!(
+            visited.ecs_fields.get("event.type"),
+            Some(&Value::Array(vec![Value::from("access")])),
+        );
+    }
+
+    #[test]
+    fn record_preserves_multi_element_array_value_for_array_field() {
+        let mut visited = VisitedFields::new();
+        let arr = Value::Array(vec![Value::from("web"), Value::from("api")]);
+        visited.record("event.category", arr.clone());
+        assert_eq!(visited.ecs_fields.get("event.category"), Some(&arr));
+    }
+
+    #[test]
+    fn record_does_not_coerce_scalar_for_non_array_field() {
+        let mut visited = VisitedFields::new();
+        visited.record("event.kind", Value::from("event"));
+        assert_eq!(
+            visited.ecs_fields.get("event.kind"),
+            Some(&Value::from("event")),
+        );
+    }
+
+    #[test]
     fn is_ecs_namespace_field_recognises_allowlisted_prefixes() {
         assert!(is_ecs_namespace_field("http.request.method"));
         assert!(is_ecs_namespace_field("client.ip"));
@@ -405,12 +548,13 @@ mod tests {
         let mut visitor = EcsLogRecordVisitor::new(
             "2024-01-15T10:30:00Z",
             "INFO",
-            "test",
+            None,
             Arc::from("svc"),
             Arc::from("1.0"),
             None,
             None,
             None,
+            "test",
         );
 
         visitor.record_str(&make_field("http.request.method"), "GET");
@@ -454,6 +598,64 @@ mod tests {
     }
 
     #[test]
+    fn set_log_origin_inserts_ecs_fields() {
+        let mut visitor = EcsLogRecordVisitor::new(
+            "2024-01-15T10:30:00Z",
+            "INFO",
+            None,
+            Arc::from("svc"),
+            Arc::from("1.0"),
+            None,
+            None,
+            None,
+            "test",
+        );
+
+        visitor.set_log_origin("src/foo.rs", 42);
+
+        assert_eq!(
+            visitor.visited.ecs_fields.get("log.origin.file.name"),
+            Some(&Value::from("src/foo.rs"))
+        );
+        assert_eq!(
+            visitor.visited.ecs_fields.get("log.origin.file.line"),
+            Some(&Value::from(42_u32))
+        );
+    }
+
+    #[test]
+    fn recorded_origin_fields_overwrite_metadata_seed() {
+        let mut visitor = EcsLogRecordVisitor::new(
+            "2024-01-15T10:30:00Z",
+            "INFO",
+            None,
+            Arc::from("svc"),
+            Arc::from("1.0"),
+            None,
+            None,
+            None,
+            "test",
+        );
+
+        visitor.set_log_origin("src/foo.rs", 42);
+        visitor
+            .visited
+            .record("log.origin.file.name", Value::from("user.rs"));
+        visitor
+            .visited
+            .record("log.origin.file.line", Value::from(999_u64));
+
+        assert_eq!(
+            visitor.visited.ecs_fields.get("log.origin.file.name"),
+            Some(&Value::from("user.rs"))
+        );
+        assert_eq!(
+            visitor.visited.ecs_fields.get("log.origin.file.line"),
+            Some(&Value::from(999_u64))
+        );
+    }
+
+    #[test]
     fn into_ecs_log_record_carries_all_fields() {
         let mut ecs_fields = HashMap::new();
         ecs_fields.insert("http.request.method".to_string(), Value::from("GET"));
@@ -473,7 +675,8 @@ mod tests {
             service_environment: Some(Arc::from("prod")),
             service_node_name: None,
             event_dataset: None,
-            log_logger: "my_app::module".to_string(),
+            event_module: "my_app::module".to_string(),
+            log_logger: Some(Arc::from("my_app::module")),
             error_type: Some("ValidationError".to_string()),
             error_message: Some("Invalid input".to_string()),
             error_stack_trace: Some("at line 42".to_string()),
@@ -486,6 +689,8 @@ mod tests {
             error_type: expected.error_type.clone(),
             error_message: expected.error_message.clone(),
             error_stack_trace: expected.error_stack_trace.clone(),
+            trace_id: None,
+            span_id: None,
             ecs_fields,
             labels,
         };
@@ -499,10 +704,19 @@ mod tests {
             expected.service_environment.clone(),
             expected.service_node_name.clone(),
             expected.event_dataset.clone(),
+            expected.event_module.clone(),
             visited,
         );
 
         let actual: EcsLogRecord = visitor.into();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn explicit_error_message_does_not_synthesize_top_level_message() {
+        let mut visited = VisitedFields::new();
+        visited.record("error.message", Value::from("db down"));
+        assert_eq!(visited.error_message.as_deref(), Some("db down"));
+        assert_eq!(visited.message, None);
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "tracing-ecs-formatter"
-version = "2.0.0"
+version = "3.0.0"
 edition = "2024"
 authors = ["Curtis Lee Fulton <curtis@bitshock.com>"]
 description = "ECS (Elastic Common Schema) 8.11 JSON formatter for tracing-subscriber"
@@ -21,7 +21,7 @@ opentelemetry = { version = "0.32", optional = true, default-features = false, f
 serde = { version = "1", default-features = false, features = ["derive", "rc", "std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-tracing-opentelemetry = { version = "0.33", optional = true, default-features = false }
+tracing-opentelemetry = { version = "0.33", optional = true, default-features = false, features = ["tracing-log"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry"] }
 
 [dev-dependencies]

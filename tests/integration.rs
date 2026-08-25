@@ -18,19 +18,25 @@ struct EcsLogRecord {
     service_name: String,
     #[serde(rename = "service.version")]
     service_version: String,
-    #[serde(rename = "log.logger")]
-    log_logger: String,
+    #[serde(rename = "log.logger", default)]
+    log_logger: Option<String>,
+    #[serde(rename = "event.module")]
+    event_module: String,
     #[serde(rename = "error.type")]
     error_type: Option<String>,
     #[serde(rename = "error.message")]
     error_message: Option<String>,
     #[serde(rename = "error.stack_trace")]
     error_stack_trace: Option<String>,
+    #[serde(rename = "log.origin.file.name", default)]
+    log_origin_file_name: Option<String>,
+    #[serde(rename = "log.origin.file.line", default)]
+    log_origin_file_line: Option<u64>,
     #[serde(flatten)]
     labels: HashMap<String, serde_json::Value>,
 }
 
-fn expected_record(log_level: &str, log_logger: &str) -> EcsLogRecord {
+fn expected_record(log_level: &str, event_module: &str) -> EcsLogRecord {
     let message = match log_level {
         "ERROR" => "error message",
         "WARN" => "warn message",
@@ -55,7 +61,6 @@ fn expected_record(log_level: &str, log_logger: &str) -> EcsLogRecord {
             "labels.custom_field".to_string(),
             serde_json::Value::String("custom_value".to_string()),
         ),
-        // Per the ecs-logging spec, `event.dataset` defaults to `service.name`.
         (
             "event.dataset".to_string(),
             serde_json::Value::String("test-service".to_string()),
@@ -85,12 +90,30 @@ fn expected_record(log_level: &str, log_logger: &str) -> EcsLogRecord {
         span_id: None,
         service_name: "test-service".to_string(),
         service_version: "1.0.0".to_string(),
-        log_logger: log_logger.to_string(),
+        log_logger: None,
+        event_module: event_module.to_string(),
         error_type,
         error_message,
         error_stack_trace,
+        log_origin_file_name: None,
+        log_origin_file_line: None,
         labels,
     }
+}
+
+fn assert_origin(record: &EcsLogRecord, expected_file_suffix: &str) {
+    let file = record
+        .log_origin_file_name
+        .as_deref()
+        .expect("log.origin.file.name missing");
+    assert!(
+        file.ends_with(expected_file_suffix),
+        "expected file to end with {expected_file_suffix}, got {file}"
+    );
+    let line = record
+        .log_origin_file_line
+        .expect("log.origin.file.line missing");
+    assert!(line > 0, "expected non-zero line, got {line}");
 }
 
 fn run_example_raw(name: &str, opentelemetry: bool) -> Vec<String> {
@@ -134,36 +157,51 @@ fn test_basic_tracing_subscriber() {
     let mut expected = expected_record("ERROR", "basic");
     let record = records.remove(0);
     expected.timestamp = record.timestamp.clone();
+    expected.log_origin_file_name = record.log_origin_file_name.clone();
+    expected.log_origin_file_line = record.log_origin_file_line;
     assert!(record.trace_id.is_none(), "Expected None trace_id");
     assert!(record.span_id.is_none(), "Expected None span_id");
+    assert_origin(&record, "examples/basic.rs");
     assert_eq!(record, expected);
 
     let mut expected = expected_record("WARN", "basic");
     let record = records.remove(0);
     expected.timestamp = record.timestamp.clone();
+    expected.log_origin_file_name = record.log_origin_file_name.clone();
+    expected.log_origin_file_line = record.log_origin_file_line;
     assert!(record.trace_id.is_none(), "Expected None trace_id");
     assert!(record.span_id.is_none(), "Expected None span_id");
+    assert_origin(&record, "examples/basic.rs");
     assert_eq!(record, expected);
 
     let mut expected = expected_record("INFO", "basic");
     let record = records.remove(0);
     expected.timestamp = record.timestamp.clone();
+    expected.log_origin_file_name = record.log_origin_file_name.clone();
+    expected.log_origin_file_line = record.log_origin_file_line;
     assert!(record.trace_id.is_none(), "Expected None trace_id");
     assert!(record.span_id.is_none(), "Expected None span_id");
+    assert_origin(&record, "examples/basic.rs");
     assert_eq!(record, expected);
 
     let mut expected = expected_record("DEBUG", "basic");
     let record = records.remove(0);
     expected.timestamp = record.timestamp.clone();
+    expected.log_origin_file_name = record.log_origin_file_name.clone();
+    expected.log_origin_file_line = record.log_origin_file_line;
     assert!(record.trace_id.is_none(), "Expected None trace_id");
     assert!(record.span_id.is_none(), "Expected None span_id");
+    assert_origin(&record, "examples/basic.rs");
     assert_eq!(record, expected);
 
     let mut expected = expected_record("TRACE", "basic");
     let record = records.remove(0);
     expected.timestamp = record.timestamp.clone();
+    expected.log_origin_file_name = record.log_origin_file_name.clone();
+    expected.log_origin_file_line = record.log_origin_file_line;
     assert!(record.trace_id.is_none(), "Expected None trace_id");
     assert!(record.span_id.is_none(), "Expected None span_id");
+    assert_origin(&record, "examples/basic.rs");
     assert_eq!(record, expected);
 }
 
@@ -178,8 +216,11 @@ fn test_opentelemetry_integration() {
     expected.timestamp = record.timestamp.clone();
     expected.trace_id = record.trace_id.clone();
     expected.span_id = record.span_id.clone();
+    expected.log_origin_file_name = record.log_origin_file_name.clone();
+    expected.log_origin_file_line = record.log_origin_file_line;
     assert!(record.trace_id.is_some(), "Expected trace_id");
     assert!(record.span_id.is_some(), "Expected span_id");
+    assert_origin(&record, "examples/opentelemetry.rs");
     assert_eq!(record, expected);
 
     let mut expected = expected_record("WARN", "opentelemetry");
@@ -187,8 +228,11 @@ fn test_opentelemetry_integration() {
     expected.timestamp = record.timestamp.clone();
     expected.trace_id = record.trace_id.clone();
     expected.span_id = record.span_id.clone();
+    expected.log_origin_file_name = record.log_origin_file_name.clone();
+    expected.log_origin_file_line = record.log_origin_file_line;
     assert!(record.trace_id.is_some(), "Expected trace_id");
     assert!(record.span_id.is_some(), "Expected span_id");
+    assert_origin(&record, "examples/opentelemetry.rs");
     assert_eq!(record, expected);
 
     let mut expected = expected_record("INFO", "opentelemetry");
@@ -196,8 +240,11 @@ fn test_opentelemetry_integration() {
     expected.timestamp = record.timestamp.clone();
     expected.trace_id = record.trace_id.clone();
     expected.span_id = record.span_id.clone();
+    expected.log_origin_file_name = record.log_origin_file_name.clone();
+    expected.log_origin_file_line = record.log_origin_file_line;
     assert!(record.trace_id.is_some(), "Expected trace_id");
     assert!(record.span_id.is_some(), "Expected span_id");
+    assert_origin(&record, "examples/opentelemetry.rs");
     assert_eq!(record, expected);
 
     let mut expected = expected_record("DEBUG", "opentelemetry");
@@ -205,8 +252,11 @@ fn test_opentelemetry_integration() {
     expected.timestamp = record.timestamp.clone();
     expected.trace_id = record.trace_id.clone();
     expected.span_id = record.span_id.clone();
+    expected.log_origin_file_name = record.log_origin_file_name.clone();
+    expected.log_origin_file_line = record.log_origin_file_line;
     assert!(record.trace_id.is_some(), "Expected trace_id");
     assert!(record.span_id.is_some(), "Expected span_id");
+    assert_origin(&record, "examples/opentelemetry.rs");
     assert_eq!(record, expected);
 
     let mut expected = expected_record("TRACE", "opentelemetry");
@@ -214,8 +264,11 @@ fn test_opentelemetry_integration() {
     expected.timestamp = record.timestamp.clone();
     expected.trace_id = record.trace_id.clone();
     expected.span_id = record.span_id.clone();
+    expected.log_origin_file_name = record.log_origin_file_name.clone();
+    expected.log_origin_file_line = record.log_origin_file_line;
     assert!(record.trace_id.is_some(), "Expected trace_id");
     assert!(record.span_id.is_some(), "Expected span_id");
+    assert_origin(&record, "examples/opentelemetry.rs");
     assert_eq!(record, expected);
 }
 
@@ -237,6 +290,7 @@ fn test_service_metadata_builders() {
         record.labels.get("event.dataset"),
         Some(&serde_json::Value::String("svc.access".to_string()))
     );
+    assert_origin(record, "examples/service_metadata.rs");
 }
 
 #[test]

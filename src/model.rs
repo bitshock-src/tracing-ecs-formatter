@@ -32,9 +32,11 @@ pub struct EcsLogRecord {
     pub service_node_name: Option<Arc<str>>,
     #[serde(rename = "event.dataset", skip_serializing_if = "Option::is_none")]
     pub event_dataset: Option<Arc<str>>,
+    #[serde(rename = "event.module")]
+    pub event_module: String,
 
-    #[serde(rename = "log.logger")]
-    pub log_logger: String,
+    #[serde(rename = "log.logger", skip_serializing_if = "Option::is_none")]
+    pub log_logger: Option<Arc<str>>,
 
     #[serde(rename = "error.type", skip_serializing_if = "Option::is_none")]
     pub error_type: Option<String>,

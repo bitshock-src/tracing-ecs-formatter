@@ -5,8 +5,6 @@ use opentelemetry::trace::TraceContextExt;
 use std::io;
 use std::sync::Arc;
 use tracing::{Event, Level, Subscriber};
-#[cfg(feature = "opentelemetry")]
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::registry::LookupSpan;
@@ -47,6 +45,7 @@ pub struct EcsFormatter {
     service_environment: Option<Arc<str>>,
     service_node_name: Option<Arc<str>>,
     event_dataset: Option<Arc<str>>,
+    log_logger: Option<Arc<str>>,
 }
 
 impl EcsFormatter {
@@ -74,6 +73,7 @@ impl EcsFormatter {
             service_environment: None,
             service_node_name: None,
             event_dataset,
+            log_logger: None,
         }
     }
 
@@ -96,6 +96,15 @@ impl EcsFormatter {
         self.event_dataset = Some(Arc::from(dataset.as_ref()));
         self
     }
+
+    /// Sets the optional `log.logger` field — the application-chosen name of
+    /// the logger instance emitting the event. When unset, the field is
+    /// omitted from the output. `tracing` has no logger-instance concept, so
+    /// there is no meaningful default to derive from event metadata.
+    pub fn with_log_logger(mut self, name: impl AsRef<str>) -> Self {
+        self.log_logger = Some(Arc::from(name.as_ref()));
+        self
+    }
 }
 
 impl<S, N> FormatEvent<S, N> for EcsFormatter
@@ -114,20 +123,21 @@ where
         let mut visitor = EcsLogRecordVisitor::new(
             chrono::Utc::now().to_rfc3339(),
             level_to_str(metadata.level()),
-            metadata.target(),
+            self.log_logger.clone(),
             Arc::clone(&self.service_name),
             Arc::clone(&self.service_version),
             self.service_environment.clone(),
             self.service_node_name.clone(),
             self.event_dataset.clone(),
+            metadata.target(),
         );
 
         #[cfg(feature = "opentelemetry")]
-        if ctx.lookup_current().is_some() {
-            let otel_ctx = tracing::Span::current().context();
-            let otel_span = otel_ctx.span();
-            let span_ctx = otel_span.span_context();
-
+        {
+            let span_ctx = opentelemetry::Context::current()
+                .span()
+                .span_context()
+                .clone();
             if span_ctx.is_valid() {
                 visitor
                     .trace_id(span_ctx.trace_id().to_string())
@@ -135,8 +145,11 @@ where
             }
         }
 
-        #[cfg(not(feature = "opentelemetry"))]
         let _ = ctx;
+
+        if let (Some(file), Some(line)) = (metadata.file(), metadata.line()) {
+            visitor.set_log_origin(file, line);
+        }
 
         event.record(&mut visitor);
 
